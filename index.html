@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quick Scan - Camera Scanner, PDF Reader & Editor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            800: '#166534',
+                            900: '#14532d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- jsPDF Library for client-side PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 9999px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+        /* Grid background for canvas preview */
+        .bg-grid-pattern {
+            background-size: 20px 20px;
+            background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+        }
+        .dark .bg-grid-pattern {
+            background-image: radial-gradient(circle, #334155 1px, transparent 1px);
+        }
+        /* Interactive touch-action fixes */
+        canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="h-full bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans flex flex-col transition-colors duration-200">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-brand-500 text-white rounded-xl shadow-md shadow-brand-500/20">
+                <i data-lucide="scan-line" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight tracking-tight flex items-center gap-2">
+                    Quick Scan <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-100 dark:bg-brand-900/60 text-brand-700 dark:text-brand-300">Pro</span>
+                </h1>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Offline Document Scanner & Editor</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <!-- Mode Switcher: Single vs ID Card -->
+            <div class="hidden sm:flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs font-medium">
+                <button id="modeDocBtn" onclick="switchScanMode('document')" class="px-3 py-1.5 rounded-md bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white transition">Document</button>
+                <button id="modeIdBtn" onclick="switchScanMode('idcard')" class="px-3 py-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition">ID Card (A4)</button>
+            </div>
+
+            <!-- Dark/Light Theme Toggle -->
+            <button onclick="toggleTheme()" class="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Toggle Theme">
+                <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
+                <i data-lucide="moon" class="w-5 h-5 block dark:hidden"></i>
+            </button>
+
+            <!-- Export PDF Button -->
+            <button id="exportPdfHeaderBtn" onclick="exportDocument('pdf')" class="hidden sm:flex items-center space-x-1.5 px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium text-sm transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                <i data-lucide="file-down" class="w-4 h-4"></i>
+                <span>Export PDF</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+        <!-- Left Toolbar / Input Controls (Desktop: Sidebar, Mobile: Top Tab bar) -->
+        <aside class="w-full md:w-80 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shrink-0">
+            <!-- Mobile Mode Switcher -->
+            <div class="flex sm:hidden p-2 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                <button id="modeDocBtnMob" onclick="switchScanMode('document')" class="flex-1 py-1.5 text-xs font-semibold rounded bg-white dark:bg-slate-700 shadow-sm">Document</button>
+                <button id="modeIdBtnMob" onclick="switchScanMode('idcard')" class="flex-1 py-1.5 text-xs font-medium rounded text-slate-500 dark:text-slate-400">ID Card Collage</button>
+            </div>
+
+            <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col gap-3">
+                <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Source Input</label>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <!-- Open Camera Button -->
+                    <button onclick="openCameraModal()" class="flex flex-col items-center justify-center p-3 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-brand-500 dark:hover:border-brand-500 bg-slate-50 dark:bg-slate-800/50 hover:bg-brand-50 dark:hover:bg-brand-950/20 text-slate-700 dark:text-slate-300 transition group">
+                        <i data-lucide="camera" class="w-6 h-6 text-brand-600 mb-1 group-hover:scale-110 transition-transform"></i>
+                        <span class="text-xs font-medium">Use Camera</span>
+                    </button>
+
+                    <!-- Upload File Button -->
+                    <label class="flex flex-col items-center justify-center p-3 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-brand-500 dark:hover:border-brand-500 bg-slate-50 dark:bg-slate-800/50 hover:bg-brand-50 dark:hover:bg-brand-950/20 text-slate-700 dark:text-slate-300 cursor-pointer transition group">
+                        <i data-lucide="upload" class="w-6 h-6 text-brand-600 mb-1 group-hover:scale-110 transition-transform"></i>
+                        <span class="text-xs font-medium">Upload File</span>
+                        <input type="file" id="fileInput" accept="image/*" multiple class="hidden" onchange="handleFileUpload(event)">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Scrollable Controls Section -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-5">
+
+                <!-- Filter Enhancements Section -->
+                <div>
+                    <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">Enhancement Filters</label>
+                    <div class="grid grid-cols-3 gap-1.5" id="filterOptions">
+                        <button onclick="applyFilter('original')" class="filter-btn active-filter px-2 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-medium text-center hover:bg-slate-200 dark:hover:bg-slate-700 transition" data-filter="original">Original</button>
+                        <button onclick="applyFilter('bw')" class="filter-btn px-2 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-medium text-center hover:bg-slate-200 dark:hover:bg-slate-700 transition" data-filter="bw">B & W</button>
+                        <button onclick="applyFilter('magic')" class="filter-btn px-2 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-medium text-center hover:bg-slate-200 dark:hover:bg-slate-700 transition" data-filter="magic">Magic Color</button>
+                        <button onclick="applyFilter('grayscale')" class="filter-btn px-2 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-medium text-center hover:bg-slate-200 dark:hover:bg-slate-700 transition" data-filter="grayscale">Grayscale</button>
+                        <button onclick="applyFilter('contrast')" class="filter-btn px-2 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-medium text-center hover:bg-slate-200 dark:hover:bg-slate-700 transition" data-filter="contrast">High Contrast</button>
+                    </div>
+                </div>
+
+                <!-- Page Operations & Annotations -->
+                <div>
+                    <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">Editor Tools</label>
+                    <div class="space-y-2">
+                        <button onclick="openSignatureModal()" class="w-full flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 transition">
+                            <span class="flex items-center gap-2"><i data-lucide="pen-tool" class="w-4 h-4 text-brand-500"></i> Add E-Signature</span>
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
+                        </button>
+                        <button onclick="promptAddText()" class="w-full flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 transition">
+                            <span class="flex items-center gap-2"><i data-lucide="type" class="w-4 h-4 text-brand-500"></i> Add Text Annotation</span>
+                            <i data-lucide="plus" class="w-4 h-4 text-slate-400"></i>
+                        </button>
+                        <button onclick="rotateCurrentPage(90)" class="w-full flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 transition">
+                            <span class="flex items-center gap-2"><i data-lucide="rotate-cw" class="w-4 h-4 text-brand-500"></i> Rotate 90° Clockwise</span>
+                            <i data-lucide="refresh-cw" class="w-4 h-4 text-slate-400"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Export Quality & Compression Target -->
+                <div class="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Target PDF Size</label>
+                    <div class="flex items-center gap-2">
+                        <select id="compressionSelect" onchange="updateCompressionEstimate()" class="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs font-medium focus:ring-2 focus:ring-brand-500 outline-none">
+                            <option value="original">Original Quality (~1-3 MB)</option>
+                            <option value="medium">Compressed (&lt; 2 MB)</option>
+                            <option value="low">Max Compression (&lt; 500 KB)</option>
+                        </select>
+                    </div>
+                    <p id="estimatedSizeLabel" class="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                        <i data-lucide="info" class="w-3 h-3 text-brand-500"></i> Est. Output: ~500 KB / page
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- Footer Quick Export (Mobile & Desktop) -->
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex gap-2">
+                <button onclick="exportDocument('pdf')" class="flex-1 py-2.5 px-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md shadow-brand-500/20 transition">
+                    <i data-lucide="download" class="w-4 h-4"></i> Save PDF
+                </button>
+                <button onclick="exportDocument('png')" class="py-2.5 px-3 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition" title="Export current page as PNG">
+                    <i data-lucide="image" class="w-4 h-4"></i> PNG
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Display Canvas & Page Viewer -->
+        <section class="flex-1 flex flex-col bg-slate-200 dark:bg-slate-900/60 relative overflow-hidden">
+
+            <!-- ID Card Helper Instructions Bar (Visible only when in ID Card Mode) -->
+            <div id="idCardNotice" class="hidden bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-xs text-amber-600 dark:text-amber-400 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="id-card" class="w-4 h-4"></i>
+                    <span><strong>ID Card Mode:</strong> Capture or upload Front side first, then Back side to fit onto a single A4 page.</span>
+                </div>
+                <button onclick="clearIdCardCollage()" class="text-xs underline hover:text-amber-700">Reset Canvas</button>
+            </div>
+
+            <!-- Canvas Workspace / Document View -->
+            <div class="flex-1 p-4 md:p-8 flex items-center justify-center overflow-auto relative bg-grid-pattern" id="canvasContainer">
+                
+                <!-- Empty State Placeholder -->
+                <div id="emptyState" class="text-center max-w-sm p-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl space-y-3">
+                    <div class="w-16 h-16 bg-brand-100 dark:bg-brand-950 text-brand-600 dark:text-brand-400 rounded-2xl flex items-center justify-center mx-auto">
+                        <i data-lucide="scan" class="w-8 h-8"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 dark:text-slate-100 text-base">No Document Loaded</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Capture a new document using your device camera or upload image files to edit, annotate, and export.</p>
+                    <div class="pt-2 flex justify-center gap-2">
+                        <button onclick="openCameraModal()" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-xs font-semibold shadow hover:bg-brand-700 transition">Start Camera</button>
+                        <button onclick="document.getElementById('fileInput').click()" class="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold hover:bg-slate-200 dark:hover:bg-slate-700 transition">Browse Files</button>
+                    </div>
+                </div>
+
+                <!-- Main Editing Canvas Wrapper -->
+                <div id="editorWrapper" class="hidden relative max-w-full max-h-full flex items-center justify-center shadow-2xl rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700">
+                    <canvas id="mainCanvas" class="max-w-full max-h-[75vh] object-contain bg-white"></canvas>
+                </div>
+
+            </div>
+
+            <!-- Bottom Page Navigation Bar -->
+            <div id="pageNavBar" class="hidden bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-4 py-2.5 flex items-center justify-between z-10">
+                <div class="flex items-center space-x-2">
+                    <button onclick="navigatePage(-1)" class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40" id="prevPageBtn">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    </button>
+                    <span class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        Page <span id="currentPageNum" class="font-bold text-slate-900 dark:text-white">1</span> of <span id="totalPagesNum">1</span>
+                    </span>
+                    <button onclick="navigatePage(1)" class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40" id="nextPageBtn">
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <!-- Thumbnail Page Selector Strip -->
+                <div class="flex items-center space-x-2 overflow-x-auto max-w-xs md:max-w-md px-2 py-1" id="thumbnailContainer">
+                    <!-- Dynamic page thumbnails inserted here -->
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <button onclick="deleteCurrentPage()" class="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition" title="Delete Page">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Camera Modal Overlay -->
+    <div id="cameraModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex flex-col items-center justify-between p-4">
+        <div class="w-full max-w-lg flex items-center justify-between text-white py-2">
+            <span class="font-bold text-sm flex items-center gap-2">
+                <i data-lucide="camera" class="w-4 h-4 text-brand-500"></i> Document Viewfinder
+            </span>
+            <button onclick="closeCameraModal()" class="p-1.5 text-slate-400 hover:text-white rounded-lg">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <div class="relative w-full max-w-lg flex-1 bg-black rounded-2xl overflow-hidden flex items-center justify-center my-auto border border-slate-800 shadow-2xl">
+            <!-- Video Feed -->
+            <video id="webcamVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+
+            <!-- Target Crop Frame Guide overlay -->
+            <div class="absolute inset-8 border-2 border-dashed border-brand-500/70 rounded-xl pointer-events-none flex items-center justify-center">
+                <div class="text-[10px] bg-brand-600/80 text-white px-2 py-0.5 rounded-full backdrop-blur">
+                    Align document inside frame
+                </div>
+            </div>
+        </div>
+
+        <!-- Camera Controls -->
+        <div class="w-full max-w-lg flex items-center justify-around py-4">
+            <button onclick="switchCameraSource()" class="p-3 bg-slate-800 text-white rounded-full hover:bg-slate-700 transition" title="Switch Camera">
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+            </button>
+            <button onclick="captureSnapshot()" class="w-16 h-16 bg-white rounded-full border-4 border-brand-500 p-1 flex items-center justify-center hover:scale-105 active:scale-95 transition shadow-lg">
+                <div class="w-full h-full bg-brand-500 rounded-full"></div>
+            </button>
+            <button onclick="closeCameraModal()" class="p-3 bg-slate-800 text-white rounded-full hover:bg-slate-700 transition" title="Cancel">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- E-Signature Modal -->
+    <div id="signatureModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i data-lucide="pen-tool" class="w-5 h-5 text-brand-500"></i> Draw E-Signature
+                </h3>
+                <button onclick="closeSignatureModal()" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Signature Canvas -->
+            <div class="border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-950">
+                <canvas id="signatureCanvas" width="400" height="180" class="w-full h-44 cursor-crosshair"></canvas>
+            </div>
+
+            <div class="flex items-center justify-between pt-1">
+                <button onclick="clearSignatureCanvas()" class="px-3 py-1.5 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition font-medium">Clear Canvas</button>
+                <div class="flex gap-2">
+                    <button onclick="closeSignatureModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-xs font-semibold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition">Cancel</button>
+                    <button onclick="applySignatureToDocument()" class="px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded-lg hover:bg-brand-700 transition shadow">Stamp Signature</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Notification Toast -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2 transform translate-y-20 opacity-0 transition-all duration-300">
+        <i data-lucide="check-circle-2" class="w-4 h-4 text-brand-500"></i>
+        <span id="toastMessage">Action completed successfully</span>
+    </div>
+
+    <!-- Core App Logic -->
+    <script>
+        // State Management
+        const state = {
+            pages: [],             // Array of processed Canvas elements / images
+            activePageIndex: 0,
+            scanMode: 'document',  // 'document' or 'idcard'
+            idCardImages: { front: null, back: null },
+            activeFilter: 'original',
+            currentCameraStream: null,
+            facingMode: 'environment', // 'user' or 'environment'
+            annotations: []        // Text and signature stamps per page
+        };
+
+        // DOM Element References
+        const mainCanvas = document.getElementById('mainCanvas');
+        const mainCtx = mainCanvas.getContext('2d');
+        const editorWrapper = document.getElementById('editorWrapper');
+        const emptyState = document.getElementById('emptyState');
+        const signatureCanvas = document.getElementById('signatureCanvas');
+        const sigCtx = signatureCanvas.getContext('2d');
+
+        // Initializer
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            initSignatureCanvas();
+            updateUIState();
+        });
+
+        // Theme Toggle Logic
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark');
+        }
+
+        // Switch Scan Mode (Single Page Document vs ID Card A4 Collage)
+        function switchScanMode(mode) {
+            state.scanMode = mode;
+            
+            // Buttons UI Update
+            const isDoc = mode === 'document';
+            document.getElementById('modeDocBtn').className = isDoc ? "px-3 py-1.5 rounded-md bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white transition" : "px-3 py-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition";
+            document.getElementById('modeIdBtn').className = !isDoc ? "px-3 py-1.5 rounded-md bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white transition" : "px-3 py-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition";
+
+            document.getElementById('idCardNotice').classList.toggle('hidden', isDoc);
+            showToast(`Switched to ${isDoc ? 'Standard Document' : 'ID Card (A4 Layout)'} mode`);
+        }
+
+        // Handle Image File Uploads
+        function handleFileUpload(event) {
+            const files = Array.from(event.target.files);
+            if (!files.length) return;
+
+            let loadedCount = 0;
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        processAndAddImage(img);
+                        loadedCount++;
+                        if (loadedCount === files.length) {
+                            showToast(`Added ${files.length} image(s)`);
+                        }
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // Reset input value
+            event.target.value = '';
+        }
+
+        // Camera Management Module
+        async function openCameraModal() {
+            const modal = document.getElementById('cameraModal');
+            modal.classList.remove('hidden');
+            await startCameraStream();
+        }
+
+        async function startCameraStream() {
+            const video = document.getElementById('webcamVideo');
+            if (state.currentCameraStream) {
+                state.currentCameraStream.getTracks().forEach(track => track.stop());
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: state.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }
+                });
+                state.currentCameraStream = stream;
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Camera access error:", err);
+                showToast("Unable to access camera device", true);
+                closeCameraModal();
+            }
+        }
+
+        function switchCameraSource() {
+            state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
+            startCameraStream();
+        }
+
+        function closeCameraModal() {
+            if (state.currentCameraStream) {
+                state.currentCameraStream.getTracks().forEach(track => track.stop());
+                state.currentCameraStream = null;
+            }
+            document.getElementById('cameraModal').classList.add('hidden');
+        }
+
+        function captureSnapshot() {
+            const video = document.getElementById('webcamVideo');
+            if (!video.videoWidth) return;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const ctx = tempCanvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+
+            const img = new Image();
+            img.onload = () => {
+                processAndAddImage(img);
+                showToast("Captured document page");
+            };
+            img.src = tempCanvas.toDataURL('image/jpeg', 0.95);
+
+            closeCameraModal();
+        }
+
+        // Image Processing & Filtering Pipeline
+        function processAndAddImage(img) {
+            if (state.scanMode === 'idcard') {
+                handleIdCardCollage(img);
+                return;
+            }
+
+            // Create offscreen canvas for source storage
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            state.pages.push({
+                originalCanvas: canvas,
+                filter: state.activeFilter,
+                rotation: 0,
+                annotations: []
+            });
+
+            state.activePageIndex = state.pages.length - 1;
+            renderCurrentPage();
+            updateUIState();
+        }
+
+        // ID Card Front/Back Assembly on A4 Canvas
+        function handleIdCardCollage(img) {
+            if (!state.idCardImages.front) {
+                state.idCardImages.front = img;
+                showToast("Captured ID Card Front. Now capture/upload Back side.");
+                return;
+            } else if (!state.idCardImages.back) {
+                state.idCardImages.back = img;
+            }
+
+            // Generate single A4 sheet with both cards centered
+            const a4Canvas = document.createElement('canvas');
+            // Standard A4 aspect ratio @ 150 DPI
+            a4Canvas.width = 1240;
+            a4Canvas.height = 1754;
+            const ctx = a4Canvas.getContext('2d');
+
+            // Fill clean white paper background
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, a4Canvas.width, a4Canvas.height);
+
+            // Draw header border guide
+            ctx.strokeStyle = "#CBD5E1";
+            ctx.lineWidth = 4;
+            ctx.strokeRect(60, 60, a4Canvas.width - 120, a4Canvas.height - 120);
+
+            // Calculate ID Card Dimensions (Standard ~85.6mm x 53.9mm ratio)
+            const cardW = 800;
+            const cardH = 500;
+            const xPos = (a4Canvas.width - cardW) / 2;
+
+            // Draw Front
+            ctx.drawImage(state.idCardImages.front, xPos, 250, cardW, cardH);
+            ctx.strokeStyle = "#94A3B8";
+            ctx.strokeRect(xPos, 250, cardW, cardH);
+
+            // Draw Back
+            ctx.drawImage(state.idCardImages.back, xPos, 900, cardW, cardH);
+            ctx.strokeRect(xPos, 900, cardW, cardH);
+
+            state.pages.push({
+                originalCanvas: a4Canvas,
+                filter: 'original',
+                rotation: 0,
+                annotations: []
+            });
+
+            // Reset ID card queue
+            state.idCardImages = { front: null, back: null };
+            state.activePageIndex = state.pages.length - 1;
+            renderCurrentPage();
+            updateUIState();
+            showToast("ID Card Collage created on A4 sheet!");
+        }
+
+        function clearIdCardCollage() {
+            state.idCardImages = { front: null, back: null };
+            showToast("ID Card capture reset");
+        }
+
+        // Render Active Page with Filters & Rotations
+        function renderCurrentPage() {
+            if (state.pages.length === 0) return;
+
+            const page = state.pages[state.activePageIndex];
+            const srcCanvas = page.originalCanvas;
+
+            // Adjust main target canvas size with rotation consideration
+            if (page.rotation % 180 === 0) {
+                mainCanvas.width = srcCanvas.width;
+                mainCanvas.height = srcCanvas.height;
+            } else {
+                mainCanvas.width = srcCanvas.height;
+                mainCanvas.height = srcCanvas.width;
+            }
+
+            mainCtx.save();
+            mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+            // Translate & Rotate setup
+            mainCtx.translate(mainCanvas.width / 2, mainCanvas.height / 2);
+            mainCtx.rotate((page.rotation * Math.PI) / 180);
+
+            // Draw base image
+            mainCtx.drawImage(
+                srcCanvas,
+                -srcCanvas.width / 2,
+                -srcCanvas.height / 2
+            );
+
+            mainCtx.restore();
+
+            // Apply selected filter algorithm
+            applyCanvasFilter(mainCtx, mainCanvas.width, mainCanvas.height, page.filter);
+
+            // Draw user annotations / stamps
+            renderAnnotations(page);
+
+            // Highlight Active Filter Button UI
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                if (btn.dataset.filter === page.filter) {
+                    btn.classList.add('ring-2', 'ring-brand-500', 'bg-brand-50', 'dark:bg-brand-950/40');
+                } else {
+                    btn.classList.remove('ring-2', 'ring-brand-500', 'bg-brand-50', 'dark:bg-brand-950/40');
+                }
+            });
+        }
+
+        // Pixel-Level Canvas Filters
+        function applyCanvasFilter(ctx, width, height, filterType) {
+            if (filterType === 'original') return;
+
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+
+                if (filterType === 'bw') {
+                    // Binary threshold filter
+                    const v = (0.2126 * r + 0.7152 * g + 0.0722 * b >= 128) ? 255 : 0;
+                    data[i] = data[i + 1] = data[i + 2] = v;
+                } else if (filterType === 'grayscale') {
+                    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                    data[i] = data[i + 1] = data[i + 2] = gray;
+                } else if (filterType === 'contrast') {
+                    const factor = (259 * (150 + 255)) / (255 * (259 - 150));
+                    data[i] = factor * (r - 128) + 128;
+                    data[i + 1] = factor * (g - 128) + 128;
+                    data[i + 2] = factor * (b - 128) + 128;
+                } else if (filterType === 'magic') {
+                    // Document enhancement: boost contrast & white balance
+                    let gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                    if (gray > 160) gray = 255;
+                    else gray = gray * 0.8;
+                    data[i] = data[i + 1] = data[i + 2] = gray;
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // Change Active Page Filter
+        function applyFilter(filterName) {
+            if (state.pages.length === 0) return;
+            state.pages[state.activePageIndex].filter = filterName;
+            renderCurrentPage();
+            showToast(`Filter applied: ${filterName}`);
+        }
+
+        // Page Manipulation
+        function rotateCurrentPage(angle) {
+            if (state.pages.length === 0) return;
+            const page = state.pages[state.activePageIndex];
+            page.rotation = (page.rotation + angle) % 360;
+            renderCurrentPage();
+        }
+
+        function deleteCurrentPage() {
+            if (state.pages.length === 0) return;
+            state.pages.splice(state.activePageIndex, 1);
+            if (state.activePageIndex >= state.pages.length) {
+                state.activePageIndex = Math.max(0, state.pages.length - 1);
+            }
+            renderCurrentPage();
+            updateUIState();
+            showToast("Page deleted");
+        }
+
+        function navigatePage(direction) {
+            const newIndex = state.activePageIndex + direction;
+            if (newIndex >= 0 && newIndex < state.pages.length) {
+                state.activePageIndex = newIndex;
+                renderCurrentPage();
+                updateUIState();
+            }
+        }
+
+        // Annotations & Text Stamps
+        function promptAddText() {
+            if (state.pages.length === 0) return;
+            const text = prompt("Enter custom text annotation:", "APPROVED");
+            if (text) {
+                state.pages[state.activePageIndex].annotations.push({
+                    type: 'text',
+                    content: text,
+                    x: mainCanvas.width / 2 - 50,
+                    y: mainCanvas.height / 2
+                });
+                renderCurrentPage();
+                showToast("Text stamp added");
+            }
+        }
+
+        function renderAnnotations(page) {
+            if (!page.annotations || page.annotations.length === 0) return;
+
+            page.annotations.forEach(ann => {
+                if (ann.type === 'text') {
+                    mainCtx.font = "bold 32px sans-serif";
+                    mainCtx.fillStyle = "#DC2626"; // Crimson accent
+                    mainCtx.fillText(ann.content, ann.x, ann.y);
+                } else if (ann.type === 'signature') {
+                    const sigImg = new Image();
+                    sigImg.onload = () => {
+                        mainCtx.drawImage(sigImg, ann.x, ann.y, 180, 80);
+                    };
+                    sigImg.src = ann.content;
+                }
+            });
+        }
+
+        // E-Signature Drawing Pad
+        let isDrawing = false;
+
+        function initSignatureCanvas() {
+            sigCtx.lineWidth = 2.5;
+            sigCtx.lineCap = 'round';
+            sigCtx.strokeStyle = '#0F172A';
+
+            const startDraw = (e) => {
+                isDrawing = true;
+                const rect = signatureCanvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                sigCtx.beginPath();
+                sigCtx.moveTo(clientX - rect.left, clientY - rect.top);
+            };
+
+            const draw = (e) => {
+                if (!isDrawing) return;
+                const rect = signatureCanvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                sigCtx.lineTo(clientX - rect.left, clientY - rect.top);
+                sigCtx.stroke();
+            };
+
+            const stopDraw = () => { isDrawing = false; };
+
+            signatureCanvas.addEventListener('mousedown', startDraw);
+            signatureCanvas.addEventListener('mousemove', draw);
+            signatureCanvas.addEventListener('mouseup', stopDraw);
+
+            signatureCanvas.addEventListener('touchstart', startDraw);
+            signatureCanvas.addEventListener('touchmove', draw);
+            signatureCanvas.addEventListener('touchend', stopDraw);
+        }
+
+        function openSignatureModal() {
+            if (state.pages.length === 0) {
+                showToast("Please load a document first", true);
+                return;
+            }
+            clearSignatureCanvas();
+            document.getElementById('signatureModal').classList.remove('hidden');
+        }
+
+        function closeSignatureModal() {
+            document.getElementById('signatureModal').classList.add('hidden');
+        }
+
+        function clearSignatureCanvas() {
+            sigCtx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+        }
+
+        function applySignatureToDocument() {
+            const sigData = signatureCanvas.toDataURL('image/png');
+            state.pages[state.activePageIndex].annotations.push({
+                type: 'signature',
+                content: sigData,
+                x: mainCanvas.width - 220,
+                y: mainCanvas.height - 120
+            });
+            renderCurrentPage();
+            closeSignatureModal();
+            showToast("Signature stamped onto document");
+        }
+
+        // PDF & Image Export Logic
+        function exportDocument(format) {
+            if (state.pages.length === 0) {
+                showToast("No document pages to export", true);
+                return;
+            }
+
+            if (format === 'png') {
+                const link = document.createElement('a');
+                link.download = `quickscan_page_${state.activePageIndex + 1}.png`;
+                link.href = mainCanvas.toDataURL('image/png');
+                link.click();
+                showToast("Exported PNG image");
+                return;
+            }
+
+            // PDF Generation via jsPDF
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({
+                orientation: mainCanvas.width > mainCanvas.height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [mainCanvas.width, mainCanvas.height]
+            });
+
+            state.pages.forEach((page, idx) => {
+                if (idx > 0) {
+                    pdf.addPage([mainCanvas.width, mainCanvas.height], mainCanvas.width > mainCanvas.height ? 'landscape' : 'portrait');
+                }
+
+                // Get compression setting factor
+                const compSelect = document.getElementById('compressionSelect').value;
+                let quality = 0.95;
+                if (compSelect === 'medium') quality = 0.70;
+                if (compSelect === 'low') quality = 0.45;
+
+                const dataUrl = mainCanvas.toDataURL('image/jpeg', quality);
+                pdf.addImage(dataUrl, 'JPEG', 0, 0, mainCanvas.width, mainCanvas.height);
+            });
+
+            pdf.save('QuickScan_Document.pdf');
+            showToast("Exported PDF successfully!");
+        }
+
+        // UI State & Thumbnails Update
+        function updateUIState() {
+            const hasPages = state.pages.length > 0;
+
+            emptyState.classList.toggle('hidden', hasPages);
+            editorWrapper.classList.toggle('hidden', !hasPages);
+            document.getElementById('pageNavBar').classList.toggle('hidden', !hasPages);
+            document.getElementById('exportPdfHeaderBtn').disabled = !hasPages;
+
+            if (hasPages) {
+                document.getElementById('currentPageNum').innerText = state.activePageIndex + 1;
+                document.getElementById('totalPagesNum').innerText = state.pages.length;
+                document.getElementById('prevPageBtn').disabled = state.activePageIndex === 0;
+                document.getElementById('nextPageBtn').disabled = state.activePageIndex === state.pages.length - 1;
+
+                renderThumbnails();
+            }
+        }
+
+        function renderThumbnails() {
+            const container = document.getElementById('thumbnailContainer');
+            container.innerHTML = '';
+
+            state.pages.forEach((page, idx) => {
+                const thumb = document.createElement('div');
+                thumb.className = `w-10 h-12 rounded border-2 cursor-pointer shrink-0 overflow-hidden bg-white flex items-center justify-center text-[10px] font-bold ${idx === state.activePageIndex ? 'border-brand-500 ring-2 ring-brand-500/30' : 'border-slate-300 dark:border-slate-700 opacity-60'}`;
+                thumb.innerText = idx + 1;
+                thumb.onclick = () => {
+                    state.activePageIndex = idx;
+                    renderCurrentPage();
+                    updateUIState();
+                };
+                container.appendChild(thumb);
+            });
+        }
+
+        function updateCompressionEstimate() {
+            const level = document.getElementById('compressionSelect').value;
+            const label = document.getElementById('estimatedSizeLabel');
+            if (level === 'original') label.innerHTML = '<i data-lucide="info" class="w-3 h-3 text-brand-500"></i> Est. Output: ~1.5 MB / page';
+            else if (level === 'medium') label.innerHTML = '<i data-lucide="info" class="w-3 h-3 text-brand-500"></i> Est. Output: &lt; 2 MB total';
+            else label.innerHTML = '<i data-lucide="info" class="w-3 h-3 text-brand-500"></i> Est. Output: &lt; 500 KB total';
+            lucide.createIcons();
+        }
+
+        // Notification Toast Helper
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toastMessage');
+            msgEl.innerText = message;
+
+            if (isError) {
+                toast.classList.add('bg-rose-600', 'text-white');
+            } else {
+                toast.classList.remove('bg-rose-600');
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
